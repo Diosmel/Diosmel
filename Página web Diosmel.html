@@ -1,0 +1,121 @@
+- 👋 Hi, I’m @Diosmel
+- 👀 I’m interested in ...
+- 🌱 I’m currently learning ...
+- 💞️ I’m looking to collaborate on ...
+- 📫 How to reach me ...
+
+<!---
+Diosmel/Diosmel is a ✨ special ✨ repository because its `README.md` (this file) appears on your GitHub profile.
+You can click the Preview link to take a look at your changes.
+--->
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Mi sitio web</title>
+    <style>
+      html, body {
+        height: 100%;
+      }
+      .word {
+        opacity: 0;
+        transition: opacity 1s;
+      }
+      .show {
+        opacity: 1;
+      }
+      .video-container {
+        display: inline-block;
+        vertical-align: top;
+      }
+      .video-container a {
+        margin-left: 10px;
+      }
+      .social-buttons {
+        display: inline-block;
+        vertical-align: top;
+        margin-left: 10px;
+      }
+      .credits {
+        font-family: "Comic Sans MS", cursive, sans-serif;
+        font-size: 24px;
+        color: yellow;
+      }
+    </style>
+  </head>
+  <body style="background-image: url('https://i.imgur.com/9XXvi5X.jpg'); background-size: cover; background-repeat: no-repeat; color: white; text-shadow: -1px 0 black, 0 1px black, 1px 0 black, 0 -1px black;">
+    <p class="credits">Creado por DIOSMEL</p>
+    <img src="https://i.imgur.com/heq7cmH.jpeg" alt="Imagen" style="width: 100px; height: 100px; border-radius: 50%;">
+    <h1>¡Bienvenidos a mi sitio web!</h1>
+    <p id="text1" style="margin-bottom: 1em;">¿Necesitas un poco de motivación e inspiración en tu día a día?<br><br>¡Estás en el lugar correcto!<br><br>En mi sitio web encontrarás contenido motivacional y positivo que te ayudará a alcanzar tus metas y a sentirte mejor contigo mismo.<br><br>También podrás aprender sobre psicología general y encontrar frases de grandes escritores y libros relacionados con la psicología.<br><br>No olvides seguirme en mis redes sociales para recibir una dosis diaria de motivación.</p>
+    <p id="text2" style="margin-bottom: 1em;">Recuerda:<br><br>"El éxito no es la clave de la felicidad. La felicidad es la clave del éxito. Si amas lo que haces, tendrás éxito".<br><br>- Albert Schweitzer</p>
+
+    <div class="video-container">
+      <a href="https://www.tiktok.com/t/ZTRovXwJh/">Ver video completo en TikTok</a><br>
+      <video id="video" src="https://i.imgur.com/ClUMPom.mp4" width="320" height="240" controls></video>
+    </div>
+
+    <div class="social-buttons">
+      <a href="https://www.tiktok.com/@diosmel_sosa?_t=8cvIAzadlMo&_r=1"><button>TikTok</button></a><br>
+      <a href="https://instagram.com/diosmelmason?igshid=MzNlNGNkZWQ4Mg=="><button>Instagram</button></a><br>
+      <a href="https://l.likee.video/p/N3uVJ"><button>Likee</button></a><br>
+      <a href="https://www.facebook.com/diosmelmason?mibextid=ZbWKwL"><button>Facebook</button></a>
+    </div>
+
+    <script>
+      // Get the text elements
+      const textElements = [document.getElementById('text1'), document.getElementById('text2')];
+
+      textElements.forEach(textElement => {
+        // Split the text into words
+        const words = textElement.textContent.split(' ');
+
+        // Clear the text
+        textElement.textContent = '';
+
+        // Create a span element for each word
+        words.forEach(word => {
+          const span = document.createElement('span');
+          span.classList.add('word');
+          span.textContent = word + ' ';
+          textElement.appendChild(span);
+        });
+      });
+
+      // Show each word with a delay
+      let index = 0;
+      setInterval(() => {
+        if (index < textElements[0].children.length) {
+          textElements[0].children[index].classList.add('show');
+          index++;
+        } else if (index < textElements[0].children.length + textElements[1].children.length) {
+          textElements[1].children[index - textElements[0].children.length].classList.add('show');
+          index++;
+        }
+      }, 200);
+
+      // Show the video container after 8 seconds
+      const videoContainer = document.querySelector('.video-container');
+      videoContainer.style.display = 'none';
+
+      setTimeout(() => {
+        videoContainer.style.display = 'block';
+      }, 8000);
+
+      // Check if autoplay with sound is allowed
+      const video = document.getElementById('video');
+      const promise = video.play();
+
+      if (promise !== undefined) {
+        promise.then(() => {
+          // Autoplay with sound is allowed
+          video.play();
+        }).catch(() => {
+          // Autoplay with sound is not allowed
+          video.muted = true;
+          video.play();
+        });
+      }
+    </script>
+  </body>
+</html>
