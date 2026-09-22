@@ -42,8 +42,9 @@ render_site_header('public');
             <div class="hero-grid">
                 <div class="hero-copy">
                     <div class="event-state-row">
-                        <span class="live-pill <?= $settings['event_status'] === 'closed' ? 'is-closed' : '' ?>">
-                            <i aria-hidden="true"></i><?= h(event_status_label((string) $settings['event_status'])) ?>
+                        <?php $publicPhase = event_phase($settings); ?>
+                        <span class="live-pill phase-<?= h($publicPhase) ?> <?= $publicPhase === 'closed' ? 'is-closed' : '' ?>">
+                            <i aria-hidden="true"></i><?= h(event_phase_label($publicPhase)) ?>
                         </span>
                         <span class="hero-alliance">Alianza <?= h((string) app_config('alliance_name')) ?></span>
                     </div>

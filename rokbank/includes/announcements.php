@@ -393,6 +393,11 @@ function announcement_normalize_blocks($blocks): array
             if ($type === 'video') {
                 $poster = (int) ($block['poster_media_id'] ?? 0);
                 $clean['poster_media_id'] = $poster > 0 ? $poster : 0;
+                $subtitle = (int) ($block['subtitle_media_id'] ?? 0);
+                $clean['subtitle_media_id'] = $subtitle > 0 ? $subtitle : 0;
+                $clean['subtitle_label'] = text_limit((string) ($block['subtitle_label'] ?? 'Español'), 60);
+                $language = strtolower(trim((string) ($block['subtitle_language'] ?? 'es')));
+                $clean['subtitle_language'] = preg_match('/^[a-z]{2}(?:-[a-z0-9]{2,8})?$/', $language) ? $language : 'es';
             }
         }
         $normalized[] = $clean;
@@ -438,6 +443,9 @@ function announcement_media_ids_in_content(array $content): array
         }
         if (!empty($block['poster_media_id'])) {
             $ids[(int) $block['poster_media_id']] = true;
+        }
+        if (!empty($block['subtitle_media_id'])) {
+            $ids[(int) $block['subtitle_media_id']] = true;
         }
         foreach ((array) ($block['items'] ?? []) as $item) {
             if (is_array($item) && !empty($item['media_id'])) {
@@ -508,7 +516,11 @@ function announcement_render_blocks(array $content): string
             if ($record === null) {
                 continue;
             }
-            $html .= '<figure class="an-figure' . $alignClass . '">' . media_image_tag($record, (string) ($block['alt'] ?? ''));
+            $blockAlt = trim((string) ($block['alt'] ?? ''));
+            if ($blockAlt === '') {
+                $blockAlt = (string) $record['alt_text'];
+            }
+            $html .= '<figure class="an-figure' . $alignClass . '">' . media_image_tag($record, $blockAlt);
             if (!empty($block['caption'])) {
                 $html .= '<figcaption>' . h((string) $block['caption']) . '</figcaption>';
             }
@@ -520,7 +532,11 @@ function announcement_render_blocks(array $content): string
                 if ($record === null) {
                     continue;
                 }
-                $html .= '<figure>' . media_image_tag($record, (string) ($item['alt'] ?? ''));
+                $itemAlt = trim((string) ($item['alt'] ?? ''));
+                if ($itemAlt === '') {
+                    $itemAlt = (string) $record['alt_text'];
+                }
+                $html .= '<figure>' . media_image_tag($record, $itemAlt);
                 if (!empty($item['caption'])) {
                     $html .= '<figcaption>' . h((string) $item['caption']) . '</figcaption>';
                 }
@@ -536,10 +552,16 @@ function announcement_render_blocks(array $content): string
                 continue;
             }
             $poster = !empty($block['poster_media_id']) ? ($media[(int) $block['poster_media_id']] ?? null) : null;
+            $subtitle = !empty($block['subtitle_media_id']) ? ($media[(int) $block['subtitle_media_id']] ?? null) : null;
             $html .= '<figure class="an-media"><video class="an-video" controls preload="metadata" playsinline'
                 . ($poster !== null ? ' poster="' . h(media_public_url($poster)) . '"' : '') . '>'
-                . '<source src="' . h(media_public_url($record)) . '" type="' . h((string) $record['mime_type']) . '">'
-                . 'Tu navegador no puede reproducir este video.</video>';
+                . '<source src="' . h(media_public_url($record)) . '" type="' . h((string) $record['mime_type']) . '">';
+            if ($subtitle !== null && (string) $subtitle['kind'] === 'subtitle') {
+                $html .= '<track kind="subtitles" default src="' . h(media_public_url($subtitle))
+                    . '" srclang="' . h((string) ($block['subtitle_language'] ?? 'es'))
+                    . '" label="' . h((string) ($block['subtitle_label'] ?? 'Español')) . '">';
+            }
+            $html .= 'Tu navegador no puede reproducir este video.</video>';
             if (!empty($block['caption'])) {
                 $html .= '<figcaption>' . h((string) $block['caption']) . '</figcaption>';
             }
@@ -1038,6 +1060,12 @@ function announcement_delete(int $id): array
     if ($announcement === null) {
         return ['El comunicado ya no existe.'];
     }
+    // Copia de seguridad antes de un borrado importante, igual que en los
+    // cierres y las correcciones financieras.
+    database_mutate(function (array &$data) use ($announcement): void {
+        audit_append($data, 'backup', 'announcement', (string) $announcement['id'],
+            'Copia automática antes de eliminar el comunicado «' . (string) $announcement['title'] . '».');
+    }, true, 'before-announcement-delete');
     $connection = mysql_connection();
     $connection->beginTransaction();
     try {

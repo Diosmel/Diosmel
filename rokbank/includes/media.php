@@ -21,7 +21,7 @@ declare(strict_types=1);
 
 function media_kinds(): array
 {
-    return ['image' => 'Imagen', 'video' => 'Video', 'audio' => 'Audio'];
+    return ['image' => 'Imagen', 'video' => 'Video', 'audio' => 'Audio', 'subtitle' => 'Subtítulos'];
 }
 
 /** MIME realmente admitidos y la extensión que el servidor les asigna. */
@@ -46,6 +46,12 @@ function media_allowed_types(): array
             'audio/wav' => 'wav',
             'audio/x-wav' => 'wav',
             'audio/wave' => 'wav',
+        ],
+        // Pista de subtítulos WebVTT para los videos. Es texto plano y se
+        // sirve como text/vtt, nunca como HTML.
+        'subtitle' => [
+            'text/vtt' => 'vtt',
+            'text/plain' => 'vtt',
         ],
     ];
 }
@@ -123,8 +129,8 @@ function media_ini_bytes(string $value): int
  */
 function media_effective_limit(string $kind): int
 {
-    $limits = (array) app_config_value('media_limits', ['image' => 15728640, 'audio' => 52428800, 'video' => 262144000]);
-    $configured = (int) ($limits[$kind] ?? 15728640);
+    $limits = (array) app_config_value('media_limits', ['image' => 15728640, 'audio' => 52428800, 'video' => 262144000, 'subtitle' => 1048576]);
+    $configured = (int) ($limits[$kind] ?? ($kind === 'subtitle' ? 1048576 : 15728640));
     $candidates = [$configured];
     $upload = media_ini_bytes((string) ini_get('upload_max_filesize'));
     $post = media_ini_bytes((string) ini_get('post_max_size'));
@@ -345,10 +351,29 @@ function media_store_upload(array $file, string $altText = '', string $caption =
         @unlink($temporary);
         return ['errors' => ['Los archivos SVG no se admiten por seguridad.'], 'id' => 0];
     }
+    // text/plain sólo se acepta cuando el archivo es realmente un WebVTT.
+    if ($mime === 'text/plain' || $mime === 'text/vtt') {
+        $head = (string) @file_get_contents($temporary, false, null, 0, 64);
+        if (strpos(ltrim($head, "\xEF\xBB\xBF \t\r\n"), 'WEBVTT') !== 0) {
+            @unlink($temporary);
+            return ['errors' => ['Un archivo de texto sólo se admite si es una pista de subtítulos WebVTT que empiece por «WEBVTT».'], 'id' => 0];
+        }
+        $mime = 'text/vtt';
+    }
     $kind = media_kind_for_mime($mime);
     if ($kind === null) {
         @unlink($temporary);
         return ['errors' => ['El contenido real del archivo (' . $mime . ') no corresponde a una imagen, video o audio admitido.'], 'id' => 0];
+    }
+    // Espacio disponible: se exige el doble del archivo como margen para que
+    // una carga grande no llene el disco del hosting a medias.
+    $free = @disk_free_space(dirname(media_directory()));
+    if (is_float($free) && $free > 0 && $free < ($size * 2)) {
+        @unlink($temporary);
+        return ['errors' => [
+            'No hay espacio suficiente en el servidor: quedan ' . media_format_bytes((int) $free)
+            . ' y el archivo ocupa ' . media_format_bytes($size) . '.',
+        ], 'id' => 0];
     }
     $limit = media_effective_limit($kind);
     if ($limit > 0 && $size > $limit) {
@@ -369,6 +394,12 @@ function media_store_upload(array $file, string $altText = '', string $caption =
         }
         $width = (int) $dimensions[0];
         $height = (int) $dimensions[1];
+        // Toda imagen necesita texto alternativo para que la página sea
+        // legible con lector de pantalla y para que se entienda sin verla.
+        if (trim($altText) === '') {
+            @unlink($temporary);
+            return ['errors' => ['Escribe el texto alternativo antes de subir una imagen: describe brevemente lo que se ve.'], 'id' => 0];
+        }
     }
 
     $extension = media_allowed_types()[$kind][$mime];
@@ -400,6 +431,7 @@ function media_store_upload(array $file, string $altText = '', string $caption =
         @unlink($destination);
         return ['errors' => ['No se pudo registrar el archivo: ' . $exception->getMessage()], 'id' => 0];
     }
+    media_cleanup_temporary_files();
     announcement_audit('upload', $id, 'Se cargó ' . strtolower(media_kinds()[$kind]) . ' «' . $originalName . '» (' . media_format_bytes($size) . ').');
     return ['errors' => [], 'id' => $id];
 }
@@ -432,6 +464,26 @@ function media_store_uploads(array $files, string $altText = '', string $caption
         $ids[] = (int) $result['id'];
     }
     return ['errors' => array_values(array_unique($errors)), 'ids' => $ids];
+}
+
+/**
+ * Limpieza de restos de cargas interrumpidas: archivos temporales propios que
+ * lleven más de un día en la carpeta de medios.
+ */
+function media_cleanup_temporary_files(): int
+{
+    $files = glob(media_directory() . '/*.tmp-*');
+    if (!is_array($files)) {
+        return 0;
+    }
+    $removed = 0;
+    foreach ($files as $file) {
+        if (is_file($file) && time() - (int) @filemtime($file) > 86400) {
+            @unlink($file);
+            $removed++;
+        }
+    }
+    return $removed;
 }
 
 function media_update_description(int $id, string $altText, string $caption): array

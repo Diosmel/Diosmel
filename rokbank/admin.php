@@ -22,6 +22,8 @@ $payoutForm = [
 $batchText = '';
 $batchPreview = null;
 $settingsWarnings = [];
+$settingsPreview = null;
+$settingsPreviewSummary = null;
 $announcementForm = null;
 $announcementPreview = null;
 $announcementEditId = (int) ($_GET['announcement_id'] ?? 0);
@@ -123,15 +125,31 @@ if (is_post()) {
                 redirect('admin.php?view=payouts');
             }
         } elseif ($action === 'delete_disbursement') {
-            $deleted = delete_disbursement((string) ($_POST['id'] ?? ''));
-            set_flash($deleted ? 'success' : 'error', $deleted ? 'Entrega eliminada y saldo restaurado.' : 'La entrega ya no existe.');
-            redirect('admin.php?view=payouts');
+            $view = 'payouts';
+            $errors = delete_disbursement((string) ($_POST['id'] ?? ''));
+            if ($errors === []) {
+                set_flash('success', 'Entrega eliminada y saldo restaurado.');
+                redirect('admin.php?view=payouts');
+            }
         } elseif ($action === 'rename_player') {
             $view = 'players';
             $errors = rename_player((string) ($_POST['player_id'] ?? ''), (string) ($_POST['new_name'] ?? ''));
             if ($errors === []) {
                 set_flash('success', 'Nombre corregido en todo el evento sin alterar sus envíos.');
                 redirect('admin.php?view=players');
+            }
+        } elseif ($action === 'preview_settings') {
+            $view = in_array((string) ($_POST['return_view'] ?? ''), ['event', 'prize'], true)
+                ? (string) $_POST['return_view'] : 'prize';
+            $input = settings_input($_POST);
+            $errors = $input['errors'];
+            $settingsWarnings = (array) ($input['warnings'] ?? []);
+            $settingsForm = $input['values'];
+            if ($errors === []) {
+                $settingsPreview = settings_change_preview(current_settings(), settings_normalize(
+                    array_merge(current_settings(), $input['values'])
+                ));
+                $settingsPreviewSummary = settings_projection_preview($input['values']);
             }
         } elseif ($action === 'save_settings') {
             $view = in_array((string) ($_POST['return_view'] ?? ''), ['event', 'prize'], true)
@@ -332,7 +350,12 @@ $reserveLedger = $view === 'reserve' ? array_reverse((array) database_read()['re
 $pendingContributions = all_pending_contributions();
 $settlementFrozen = in_array((string) $settings['settlement_status'], ['frozen', 'closed'], true);
 $announcementsReady = announcements_available();
-$announcementList = ($view === 'announcements' && $announcementsReady) ? announcement_list('', 200) : [];
+$announcementStatusFilter = (string) ($_GET['status'] ?? '');
+if (!in_array($announcementStatusFilter, announcement_status_keys(), true)) {
+    $announcementStatusFilter = '';
+}
+$announcementList = ($view === 'announcements' && $announcementsReady)
+    ? announcement_list($announcementStatusFilter, 200) : [];
 $mediaLibrary = ($view === 'announcements' && $announcementsReady) ? media_list(200) : [];
 $mediaLimits = media_limit_report();
 if ($view === 'announcements' && $announcementsReady && $announcementForm === null && $announcementEditId > 0) {
@@ -361,7 +384,7 @@ render_site_header('admin');
             <div>
                 <span class="eyebrow">Centro de control privado</span>
                 <h1>Administración del banco</h1>
-                <p><?= h((string) $settings['event_name']) ?> · <?= h(event_status_label((string) $settings['event_status'])) ?></p>
+                <p><?= h((string) $settings['event_name']) ?> · <?= h(event_phase_label(event_phase($settings))) ?></p>
             </div>
             <a class="button button-secondary" href="index.php">Ver página pública</a>
         </div>
@@ -395,6 +418,48 @@ render_site_header('admin');
                 <strong>Aviso sobre la clasificación:</strong>
                 <ul><?php foreach ($settingsWarnings as $warning): ?><li><?= h((string) $warning) ?></li><?php endforeach; ?></ul>
             </div>
+        <?php endif; ?>
+
+        <?php if ($settingsPreview !== null): ?>
+            <section class="admin-panel settings-preview-panel" data-testid="settings-change-preview">
+                <div class="panel-heading"><div><span class="eyebrow">Revisión antes de guardar</span><h2>Qué cambiaría exactamente</h2></div><span class="record-count"><?= h((string) count(array_filter($settingsPreview, static function (array $row): bool { return !empty($row['changed']); }))) ?> cambios</span></div>
+                <p class="panel-intro">Nada se ha guardado todavía. Compara los valores y pulsa Guardar en el formulario de abajo si estás de acuerdo.</p>
+                <div class="table-shell"><table class="data-table admin-table"><thead><tr><th>Ajuste</th><th>Valor actual</th><th>Valor nuevo</th></tr></thead><tbody>
+                    <?php foreach ($settingsPreview as $row): ?>
+                        <tr class="<?= !empty($row['changed']) ? 'settings-row-changed' : '' ?>">
+                            <th scope="row" data-label="Ajuste"><?= h((string) $row['label']) ?></th>
+                            <td data-label="Valor actual"><?= h((string) $row['before']) ?></td>
+                            <td data-label="Valor nuevo"><strong><?= h((string) $row['after']) ?></strong><?= !empty($row['changed']) ? ' <span class="settings-changed-mark">cambia</span>' : '' ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody></table></div>
+
+                <?php if ($settingsPreviewSummary !== null): ?>
+                    <?php $previewFund = $settingsPreviewSummary['fund_breakdown']; $previewPrizes = $settingsPreviewSummary['reward_projection']['prizes']; ?>
+                    <h3 class="settings-subtitle">Cómo quedaría el reparto</h3>
+                    <div class="table-shell"><table class="data-table admin-table"><thead><tr><th>Recurso</th><th>Fondo bruto ahora</th><th>Fondo bruto nuevo</th><th>Reserva al cierre ahora</th><th>Reserva al cierre nueva</th></tr></thead><tbody>
+                        <?php foreach (resource_keys() as $resource): ?>
+                            <tr>
+                                <th scope="row" data-label="Recurso"><?= h(resource_title($resource)) ?></th>
+                                <td data-label="Fondo bruto ahora"><?= h(format_integer((int) $fundBreakdown['prize_fund_gross'][$resource])) ?></td>
+                                <td data-label="Fondo bruto nuevo"><strong><?= h(format_integer((int) $previewFund['prize_fund_gross'][$resource])) ?></strong></td>
+                                <td data-label="Reserva al cierre ahora"><?= h(format_integer((int) $fundBreakdown['reserve_closing'][$resource])) ?></td>
+                                <td data-label="Reserva al cierre nueva"><strong><?= h(format_integer((int) $previewFund['reserve_closing'][$resource])) ?></strong></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody></table></div>
+                    <div class="table-shell"><table class="data-table admin-table"><thead><tr><th>Puesto</th><th>Bruto previsto</th><th>Impuesto previsto</th><th>Neto previsto</th></tr></thead><tbody>
+                        <?php foreach (reward_rank_keys() as $rank): ?>
+                            <tr>
+                                <th scope="row" data-label="Puesto"><?= h(reward_rank_label($rank)) ?></th>
+                                <td data-label="Bruto previsto"><?= h(format_integer((int) $previewPrizes[$rank]['sent_total'])) ?></td>
+                                <td data-label="Impuesto previsto"><?= h(format_integer((int) $previewPrizes[$rank]['tax_total'])) ?></td>
+                                <td data-label="Neto previsto"><?= h(format_integer((int) $previewPrizes[$rank]['received_total'])) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody></table></div>
+                <?php endif; ?>
+            </section>
         <?php endif; ?>
 
         <?php if ($settlementFrozen && $view !== 'settlement'): ?>
@@ -709,12 +774,16 @@ render_site_header('admin');
                 <div class="panel-heading"><div><span class="eyebrow">Control sin editar código</span><h2>Configuración del evento actual</h2></div><span class="record-count" data-testid="event-id">ID <?= h((string) $fundBreakdown['event_id']) ?></span></div>
                 <p class="panel-intro">Todo lo que aparece aquí se publica tal cual en la portada, el historial y las exportaciones. Ningún texto visible queda fijado en el código.</p>
                 <form method="post" action="admin.php?view=event" class="settings-form" data-testid="event-settings-form">
-                    <?= csrf_input() ?><input type="hidden" name="action" value="save_settings"><input type="hidden" name="return_view" value="event">
+                    <?= csrf_input() ?><input type="hidden" name="return_view" value="event">
 
                     <h3 class="settings-subtitle">Identidad y fechas</h3>
                     <div class="settings-grid">
                         <label class="field"><span class="field-label">Nombre del evento</span><input type="text" name="event_name" data-testid="event-name" value="<?= h((string) $settingsForm['event_name']) ?>" maxlength="100" required></label>
-                        <label class="field"><span class="field-label">Estado</span><select name="event_status" data-testid="event-status"><option value="active" <?= $settingsForm['event_status'] === 'active' ? 'selected' : '' ?>>Activo</option><option value="closed" <?= $settingsForm['event_status'] === 'closed' ? 'selected' : '' ?>>Cerrado</option></select><small>Estado de la liquidación: <?= h(settlement_status_label((string) $settings['settlement_status'])) ?>.</small></label>
+                        <label class="field"><span class="field-label">Estado del evento</span><select name="event_status" data-testid="event-status">
+                            <?php foreach (event_status_keys() as $statusKey): ?>
+                                <option value="<?= h($statusKey) ?>" <?= (string) $settingsForm['event_status'] === $statusKey ? 'selected' : '' ?>><?= h(event_status_label($statusKey)) ?></option>
+                            <?php endforeach; ?>
+                        </select><small>Fase real ahora mismo: <strong><?= h(event_phase_label(event_phase($settings))) ?></strong>. La fase de liquidación congelada se activa desde la pestaña Liquidación.</small></label>
                         <label class="field"><span class="field-label">Fecha y hora de inicio, hora de Florida</span><input type="datetime-local" name="starts_at" data-testid="event-starts-at" value="<?= h(format_datetime_input($settingsForm['starts_at'] ?? null)) ?>"></label>
                         <label class="field"><span class="field-label">Fecha y hora límite, hora de Florida</span><input type="datetime-local" name="deadline" data-testid="event-deadline" value="<?= h(format_datetime_input($settingsForm['deadline'] ?? null)) ?>"></label>
                         <label class="field"><span class="field-label">Custodio público</span><input class="notranslate" translate="no" type="text" name="custodian_name" data-testid="event-custodian" value="<?= h((string) $settingsForm['custodian_name']) ?>" maxlength="80" required></label>
@@ -761,7 +830,10 @@ render_site_header('admin');
                         <small>Esta regla es fija para evitar descontar el impuesto dos veces.</small>
                     </div>
 
-                    <button class="button button-primary" type="submit" data-testid="save-event-settings">Guardar configuración del evento</button>
+                    <div class="form-actions">
+                        <button class="button button-secondary" type="submit" name="action" value="preview_settings" data-testid="preview-event-settings">Ver qué cambiaría</button>
+                        <button class="button button-primary" type="submit" name="action" value="save_settings" data-testid="save-event-settings">Guardar configuración del evento</button>
+                    </div>
                 </form>
             </section>
 
@@ -808,7 +880,7 @@ render_site_header('admin');
                     <div class="settlement-banner" role="alert"><strong>La liquidación está congelada.</strong><span>Los campos financieros no se pueden cambiar en silencio. Desbloquea primero la liquidación y deja el motivo.</span><a class="small-button" href="admin.php?view=settlement">Ir a liquidación</a></div>
                 <?php endif; ?>
                 <form method="post" action="admin.php?view=prize" class="settings-form" data-testid="prize-settings-form">
-                    <?= csrf_input() ?><input type="hidden" name="action" value="save_settings"><input type="hidden" name="return_view" value="prize">
+                    <?= csrf_input() ?><input type="hidden" name="return_view" value="prize">
 
                     <h3 class="settings-subtitle">Porcentaje del fondo destinado a premios</h3>
                     <p class="panel-intro">Este porcentaje decide cuánto del fondo elegible se entrega esta semana. Lo que no se entrega queda guardado como reserva para eventos futuros. No sustituye a los pesos: primero se obtiene el fondo de premios y después se reparte entre los tres puestos.</p>
@@ -846,7 +918,10 @@ render_site_header('admin');
                         <?php endforeach; ?>
                     </div>
 
-                    <button class="button button-primary" type="submit" data-testid="save-prize-settings" <?= $settlementFrozen ? 'disabled' : '' ?>>Guardar configuración del premio</button>
+                    <div class="form-actions">
+                        <button class="button button-secondary" type="submit" name="action" value="preview_settings" data-testid="preview-prize-settings">Ver qué cambiaría</button>
+                        <button class="button button-primary" type="submit" name="action" value="save_settings" data-testid="save-prize-settings" <?= $settlementFrozen ? 'disabled' : '' ?>>Guardar configuración del premio</button>
+                    </div>
                 </form>
             </section>
 
@@ -1009,6 +1084,12 @@ render_site_header('admin');
 
                 <section class="admin-panel">
                     <div class="panel-heading"><div><span class="eyebrow">Tablón oficial</span><h2>Comunicados</h2></div><a class="button button-secondary" href="admin.php?view=announcements&amp;announcement_id=0" data-testid="new-announcement">Crear comunicado</a></div>
+                    <div class="filter-group" role="group" aria-label="Filtrar comunicados por estado">
+                        <a class="filter-chip <?= $announcementStatusFilter === '' ? 'is-active' : '' ?>" href="admin.php?view=announcements">Todos</a>
+                        <?php foreach (announcement_status_keys() as $statusKey): ?>
+                            <a class="filter-chip <?= $announcementStatusFilter === $statusKey ? 'is-active' : '' ?>" href="admin.php?view=announcements&amp;status=<?= h($statusKey) ?>"><?= h(announcement_status_label($statusKey)) ?></a>
+                        <?php endforeach; ?>
+                    </div>
                     <?php if ($announcementList === []): ?>
                         <div class="empty-inline">Todavía no hay comunicados. Crea el primero con el editor de abajo.</div>
                     <?php else: ?>
@@ -1057,7 +1138,8 @@ render_site_header('admin');
                         audio <?= h(media_format_bytes((int) $mediaLimits['audio']['effective'])) ?>,
                         video <?= h(media_format_bytes((int) $mediaLimits['video']['effective'])) ?>.
                         Es el valor más bajo entre la configuración de ROKBANK, <code>upload_max_filesize</code> (<?= h((string) $mediaLimits['upload_max_filesize']) ?>)
-                        y <code>post_max_size</code> (<?= h((string) $mediaLimits['post_max_size']) ?>). Formatos admitidos: JPEG, PNG, WebP, GIF, MP4, WebM, MP3, M4A, OGG y WAV. SVG se rechaza por seguridad.
+                        y <code>post_max_size</code> (<?= h((string) $mediaLimits['post_max_size']) ?>). Formatos admitidos: JPEG, PNG, WebP, GIF, MP4, WebM, MP3, M4A, OGG, WAV y subtítulos WebVTT (.vtt).
+                        SVG se rechaza por seguridad y toda imagen necesita texto alternativo: sin él la carga se rechaza.
                     </p>
                     <form method="post" action="admin.php?view=announcements" enctype="multipart/form-data" class="settings-form" data-testid="media-upload-form">
                         <?= csrf_input() ?><input type="hidden" name="action" value="media_upload"><input type="hidden" name="announcement_id" value="<?= (int) $editingId ?>">

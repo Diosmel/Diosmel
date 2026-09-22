@@ -417,7 +417,7 @@ function settings_normalize($settings): array
     if ($settings['event_name'] === '') {
         $settings['event_name'] = $default['event_name'];
     }
-    $settings['event_status'] = in_array((string) ($settings['event_status'] ?? ''), ['active', 'closed'], true)
+    $settings['event_status'] = in_array((string) ($settings['event_status'] ?? ''), event_status_keys(), true)
         ? (string) $settings['event_status'] : 'active';
 
     // --- Identidad, objetivo y reglas del evento ---------------------------
@@ -1438,9 +1438,19 @@ function contribution_record_from_values(array &$data, array $values): array
     return $record;
 }
 
+function settlement_frozen_contribution_error(): string
+{
+    return 'La liquidación está congelada y este aporte cambiaría el premio ya anunciado. '
+        . 'Usa «Aporte tardío» para asignarlo al evento siguiente o ingresarlo a la reserva, '
+        . 'o desbloquea la liquidación si todavía no has pagado.';
+}
+
 function add_contribution(array $values): string
 {
     return database_mutate(function (array &$data) use ($values): string {
+        if (settlement_blocks_payout_rewrite($data)) {
+            throw new InvalidArgumentException(settlement_frozen_contribution_error());
+        }
         $record = contribution_record_from_values($data, $values);
         $data['contributions'][] = $record;
         $name = player_name_from_data($data, (string) $record['player_id']);
@@ -1452,6 +1462,9 @@ function add_contribution(array $values): string
 function add_contributions_batch(array $rows): int
 {
     return database_mutate(function (array &$data) use ($rows): int {
+        if (settlement_blocks_payout_rewrite($data)) {
+            throw new InvalidArgumentException(settlement_frozen_contribution_error());
+        }
         $count = 0;
         foreach ($rows as $values) {
             if (!is_array($values)) {
@@ -1601,6 +1614,9 @@ function find_contribution(string $id): ?array
 function update_contribution(string $id, array $values): bool
 {
     return database_mutate(function (array &$data) use ($id, $values): bool {
+        if (settlement_blocks_payout_rewrite($data)) {
+            throw new InvalidArgumentException(settlement_frozen_contribution_error());
+        }
         foreach ($data['contributions'] as $index => $record) {
             if (!hash_equals((string) ($record['id'] ?? ''), $id)) {
                 continue;
@@ -1627,6 +1643,9 @@ function update_contribution(string $id, array $values): bool
 function delete_contribution(string $id): bool
 {
     return database_mutate(function (array &$data) use ($id): bool {
+        if (settlement_blocks_payout_rewrite($data)) {
+            throw new InvalidArgumentException(settlement_frozen_contribution_error());
+        }
         foreach ($data['contributions'] as $index => $record) {
             if (!hash_equals((string) ($record['id'] ?? ''), $id)) {
                 continue;
@@ -1824,10 +1843,28 @@ function add_disbursement(array $values): array
     return [];
 }
 
+/**
+ * Una vez congelada la liquidación, una entrega ya registrada no se reescribe
+ * ni se borra: eso sería reescribir el pasado. Para corregirla hay que
+ * desbloquear la liquidación (queda el motivo en la auditoría) o registrar un
+ * ajuste compensatorio en el libro de reservas.
+ */
+function settlement_blocks_payout_rewrite(array $data): bool
+{
+    return (string) ($data['settings']['settlement_status'] ?? 'open') === 'frozen';
+}
+
 function update_disbursement(string $id, array $values): array
 {
     try {
         database_mutate(function (array &$data) use ($id, $values): void {
+            if (settlement_blocks_payout_rewrite($data)) {
+                throw new InvalidArgumentException(
+                    'La liquidación está congelada: una entrega ya registrada no puede reescribirse. '
+                    . 'Desbloquea la liquidación explicando el motivo, o registra un ajuste compensatorio '
+                    . 'en el libro de reservas.'
+                );
+            }
             foreach ($data['disbursements'] as $index => $record) {
                 if (!hash_equals((string) ($record['id'] ?? ''), $id)) {
                     continue;
@@ -1861,20 +1898,32 @@ function update_disbursement(string $id, array $values): array
     return [];
 }
 
-function delete_disbursement(string $id): bool
+function delete_disbursement(string $id): array
 {
-    return database_mutate(function (array &$data) use ($id): bool {
-        foreach ($data['disbursements'] as $index => $record) {
-            if (!hash_equals((string) ($record['id'] ?? ''), $id)) {
-                continue;
+    try {
+        database_mutate(function (array &$data) use ($id): void {
+            if (settlement_blocks_payout_rewrite($data)) {
+                throw new InvalidArgumentException(
+                    'La liquidación está congelada: una entrega ya registrada no puede borrarse. '
+                    . 'Desbloquea la liquidación explicando el motivo, o registra un ajuste compensatorio '
+                    . 'en el libro de reservas.'
+                );
             }
-            $name = (string) ($record['recipient_name'] ?? '');
-            array_splice($data['disbursements'], $index, 1);
-            audit_append($data, 'delete', 'disbursement', $id, 'Se eliminó una entrega a ' . $name . '.');
-            return true;
-        }
-        return false;
-    }, true, 'delete-disbursement');
+            foreach ($data['disbursements'] as $index => $record) {
+                if (!hash_equals((string) ($record['id'] ?? ''), $id)) {
+                    continue;
+                }
+                $name = (string) ($record['recipient_name'] ?? '');
+                array_splice($data['disbursements'], $index, 1);
+                audit_append($data, 'delete', 'disbursement', $id, 'Se eliminó una entrega a ' . $name . '.');
+                return;
+            }
+            throw new InvalidArgumentException('La entrega que intentas eliminar ya no existe.');
+        }, true, 'delete-disbursement');
+    } catch (InvalidArgumentException $exception) {
+        return [$exception->getMessage()];
+    }
+    return [];
 }
 
 function find_disbursement(string $id): ?array
@@ -1994,7 +2043,7 @@ function settings_input(array $source): array
     if ($winnerLength > 255) {
         $errors[] = 'El resumen de ganadores no puede superar 255 caracteres.';
     }
-    $status = in_array((string) ($source['event_status'] ?? ''), ['active', 'closed'], true)
+    $status = in_array((string) ($source['event_status'] ?? ''), event_status_keys(), true)
         ? (string) $source['event_status'] : (string) $current['event_status'];
     $taxRaw = str_replace(',', '.', trim((string) ($source['tax_rate'] ?? $current['tax_rate'])));
     if (!is_numeric($taxRaw) || (float) $taxRaw < 0 || (float) $taxRaw > 50) {
@@ -2515,6 +2564,65 @@ function reserve_manual_adjustment(string $resource, string $direction, string $
         return [$exception->getMessage()];
     }
     return [];
+}
+
+/**
+ * Comparación campo por campo entre la configuración guardada y la que el
+ * administrador está a punto de guardar. Sirve para mostrar, antes de
+ * confirmar, qué valor había y qué valor quedará.
+ */
+function settings_change_preview(array $current, array $next): array
+{
+    $rows = [];
+    $add = static function (string $label, $before, $after) use (&$rows): void {
+        $rows[] = [
+            'label' => $label,
+            'before' => (string) $before,
+            'after' => (string) $after,
+            'changed' => (string) $before !== (string) $after,
+        ];
+    };
+
+    $add('Nombre del evento', $current['event_name'], $next['event_name']);
+    $add('Estado del evento', event_status_label((string) $current['event_status']), event_status_label((string) $next['event_status']));
+    $add('Objetivo', $current['objective_title'], $next['objective_title']);
+    $add('Métrica de clasificación', $current['score_metric_label'], $next['score_metric_label']);
+    $add('Método de clasificación', ranking_method_label((string) $current['ranking_method']), ranking_method_label((string) $next['ranking_method']));
+    $add('Porcentaje destinado a premios',
+        basis_points_to_text((int) $current['prize_pool_basis_points']) . ' %',
+        basis_points_to_text((int) $next['prize_pool_basis_points']) . ' %');
+    $add('Impuesto del juego',
+        number_format((float) $current['tax_rate'], 2, ',', '.') . ' %',
+        number_format((float) $next['tax_rate'], 2, ',', '.') . ' %');
+    foreach (reward_rank_keys() as $rank) {
+        $add('Peso relativo de ' . reward_rank_label($rank),
+            number_format((float) $current['reward_weights'][$rank], 2, ',', '.'),
+            number_format((float) $next['reward_weights'][$rank], 2, ',', '.'));
+    }
+    foreach (resource_keys() as $resource) {
+        $add('Cuota de ' . resource_label($resource),
+            format_integer((int) $current['thresholds'][$resource]),
+            format_integer((int) $next['thresholds'][$resource]));
+    }
+    foreach (resource_keys() as $resource) {
+        $add('Reserva usada de ' . resource_label($resource),
+            format_integer((int) $current['reserve_draw'][$resource]),
+            format_integer((int) $next['reserve_draw'][$resource]));
+    }
+    $add('Capacidad por envío', format_integer((int) $current['transport_capacity']), format_integer((int) $next['transport_capacity']));
+
+    return $rows;
+}
+
+/**
+ * Proyección completa que resultaría de una configuración todavía no guardada,
+ * sin tocar nada en la base de datos.
+ */
+function settings_projection_preview(array $values): array
+{
+    $data = database_read();
+    $data['settings'] = settings_normalize(array_merge($data['settings'], $values));
+    return bank_summary_from_data($data);
 }
 
 function current_settings(): array
@@ -3937,9 +4045,52 @@ function format_datetime_input(?string $iso): string
     }
 }
 
+function event_status_keys(): array
+{
+    return ['preparation', 'active', 'closed'];
+}
+
+/**
+ * Fase real del evento, combinando el estado elegido por el administrador con
+ * el estado de la liquidación. Es la que ve el público.
+ *
+ *   preparación → activo → liquidación congelada → cerrado
+ */
+function event_phase(array $settings): string
+{
+    $status = (string) ($settings['event_status'] ?? 'active');
+    $settlement = (string) ($settings['settlement_status'] ?? 'open');
+    if ($status === 'closed' || $settlement === 'closed') {
+        return 'closed';
+    }
+    if ($settlement === 'frozen') {
+        return 'frozen';
+    }
+    if ($status === 'preparation' || $settlement === 'preparation') {
+        return 'preparation';
+    }
+    return 'active';
+}
+
+function event_phase_label(string $phase): string
+{
+    $labels = [
+        'preparation' => 'Evento en preparación',
+        'active' => 'Evento activo',
+        'frozen' => 'Liquidación congelada',
+        'closed' => 'Evento cerrado',
+    ];
+    return $labels[$phase] ?? $labels['active'];
+}
+
 function event_status_label(string $status): string
 {
-    return $status === 'closed' ? 'Evento cerrado' : 'Evento activo';
+    $labels = [
+        'preparation' => 'En preparación',
+        'active' => 'Evento activo',
+        'closed' => 'Evento cerrado',
+    ];
+    return $labels[$status] ?? $labels['active'];
 }
 
 function qualification_basis_label(string $basis): string

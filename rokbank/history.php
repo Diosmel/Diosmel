@@ -195,8 +195,26 @@ render_site_header('history');
 
                 <section class="history-section-block" id="participantes">
                     <div class="section-heading"><div><span class="eyebrow">Aportes acumulados</span><h2>Participantes</h2></div><p><?= h((string) ($eventSummary['record_count'] ?? 0)) ?> movimientos originales, sin resumir ni borrar.</p></div>
-                    <div class="table-shell"><table class="data-table history-detail-table"><thead><tr><th>Jugador</th><th>Comida</th><th>Madera</th><th>Piedra</th><th>Oro</th><th>Envíos</th><th>Estado</th></tr></thead><tbody>
-                        <?php foreach ($eventDetail['players'] as $player): ?><tr><th scope="row"><?php render_player_name((string) $player['name']); ?></th><?php foreach (resource_keys() as $resource): ?><td><?= h(format_integer((int) $player[$resource])) ?></td><?php endforeach; ?><td><?= h((string) $player['records']) ?></td><td><span class="<?= !empty($player['eligible']) ? 'status-inline status-eligible' : 'status-inline status-pending' ?>"><?= !empty($player['eligible']) ? 'Completó' : 'Parcial' ?></span></td></tr><?php endforeach; ?>
+                    <div class="table-shell"><table class="data-table history-detail-table"><caption>Bajo cada aporte se indica la cuota que regía esa semana y el faltante o el excedente frente a ella.</caption><thead><tr><th>Jugador</th><th>Comida</th><th>Madera</th><th>Piedra</th><th>Oro</th><th>Envíos</th><th>Estado</th></tr></thead><tbody>
+                        <?php foreach ($eventDetail['players'] as $player): ?>
+                            <tr>
+                                <th scope="row" data-label="Jugador"><?php render_player_name((string) $player['name']); ?></th>
+                                <?php foreach (resource_keys() as $resource): ?>
+                                    <?php
+                                    $given = (int) $player[$resource];
+                                    $quota = (int) $eventSettings['thresholds'][$resource];
+                                    $missing = (int) $player['remaining'][$resource];
+                                    ?>
+                                    <td data-label="<?= h(resource_title($resource)) ?>">
+                                        <strong><?= h(format_integer($given)) ?></strong>
+                                        <small>Cuota <?= h(format_integer($quota)) ?></small>
+                                        <small class="<?= $missing === 0 ? 'quota-ok' : 'quota-missing' ?>"><?= $missing === 0 ? 'Excedente +' . h(format_integer($given - $quota)) : 'Faltaron ' . h(format_integer($missing)) ?></small>
+                                    </td>
+                                <?php endforeach; ?>
+                                <td data-label="Envíos"><?= h((string) $player['records']) ?></td>
+                                <td data-label="Estado"><span class="<?= !empty($player['eligible']) ? 'status-inline status-eligible' : 'status-inline status-pending' ?>"><?= !empty($player['eligible']) ? 'Completó' : 'Parcial' ?></span></td>
+                            </tr>
+                        <?php endforeach; ?>
                     </tbody></table></div>
                 </section>
 

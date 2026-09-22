@@ -90,7 +90,24 @@ aportes y un evento archivado en el formato antiguo.
 8. **Las credenciales salen del paquete** y pasan a variables de entorno o a
    `config.local.php`, que está bloqueado y excluido del repositorio.
 
-## 6. Eventos históricos
+## 6. Requisitos completados en la segunda revisión
+
+Una auditoría literal de la especificación contra el código encontró nueve
+puntos que faltaban. Todos están implementados y probados:
+
+| Apartado | Requisito | Implementación |
+| --- | --- | --- |
+| 3.1 | Estado en cuatro fases | `event_status` admite preparación, activo y cerrado; `event_phase()` combina ese estado con el de la liquidación y produce las cuatro fases, visibles en la portada y en el panel |
+| 5 | Después de pagar, sólo ajustes auditados | Con la liquidación congelada no se puede editar ni borrar una entrega, ni añadir, editar o borrar un aporte del evento; el mensaje explica cómo proceder |
+| 6 | Faltantes por participante en el historial | Cada aporte histórico muestra la cuota de esa semana y el faltante o el excedente |
+| 7.3 | Alineación por bloque | Selector de alineación en título, párrafo, botón e imagen |
+| 7.4 | Subtítulos de video | Nuevo tipo de archivo WebVTT, validado por contenido y servido como `text/vtt`; se inserta como `<track kind="subtitles">` con idioma y etiqueta |
+| 7.4 | Texto alternativo obligatorio | Una imagen sin texto alternativo se rechaza al subirla; galerías e imágenes heredan el del archivo si el bloque no lo indica |
+| 7.2 | Filtro por estado | La lista de comunicados se filtra por borrador, publicado y archivado |
+| 10 | Espacio disponible y temporales | Se comprueba `disk_free_space` antes de guardar y se limpian los restos de cargas interrumpidas |
+| 10 / 12 | Copia previa y vista previa financiera | Se crea copia antes de borrar un comunicado; «Ver qué cambiaría» compara valor actual y valor nuevo campo por campo, con el reparto resultante, sin guardar nada |
+
+## 7. Eventos históricos
 
 Se comparó campo por campo un evento archivado antes y después de la
 migración: **0 campos eliminados, 0 campos modificados** y 21 campos añadidos

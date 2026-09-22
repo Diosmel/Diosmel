@@ -268,6 +268,12 @@ function render_announcement_block_editor(int $index, array $block, array $media
                 <?php foreach ((array) ($mediaByKind['image'] ?? []) as $mediaRow): ?><option value="<?= (int) $mediaRow['id'] ?>" <?= (int) ($block['poster_media_id'] ?? 0) === (int) $mediaRow['id'] ? 'selected' : '' ?>>#<?= (int) $mediaRow['id'] ?> · <?= h((string) $mediaRow['original_name']) ?></option><?php endforeach; ?>
             </select></label>
             <label class="field"><span class="field-label">Pie del video</span><input type="text" name="<?= h($name) ?>[caption]" value="<?= h((string) ($block['caption'] ?? '')) ?>" maxlength="300"></label>
+            <label class="field"><span class="field-label">Subtítulos (.vtt)</span><select name="<?= h($name) ?>[subtitle_media_id]" data-testid="<?= h($testPrefix) ?>subtitle">
+                <option value="0">— Sin subtítulos —</option>
+                <?php foreach ((array) ($mediaByKind['subtitle'] ?? []) as $mediaRow): ?><option value="<?= (int) $mediaRow['id'] ?>" <?= (int) ($block['subtitle_media_id'] ?? 0) === (int) $mediaRow['id'] ? 'selected' : '' ?>>#<?= (int) $mediaRow['id'] ?> · <?= h((string) $mediaRow['original_name']) ?></option><?php endforeach; ?>
+            </select><small>Sube primero el archivo WebVTT a la biblioteca.</small></label>
+            <label class="field"><span class="field-label">Nombre de la pista</span><input type="text" name="<?= h($name) ?>[subtitle_label]" value="<?= h((string) ($block['subtitle_label'] ?? 'Español')) ?>" maxlength="60"></label>
+            <label class="field"><span class="field-label">Idioma de la pista</span><input type="text" name="<?= h($name) ?>[subtitle_language]" value="<?= h((string) ($block['subtitle_language'] ?? 'es')) ?>" maxlength="12" placeholder="es"></label>
         </div>
     <?php elseif ($type === 'audio'): ?>
         <div class="an-block-row">

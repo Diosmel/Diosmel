@@ -6,17 +6,19 @@ reservas, liquidación congelada y sección pública de Comunicados).
 
 LO PRIMERO DE TODO
 ==================
-Este paquete NO trae `config.php`. Es a propósito: así, al extraerlo encima de
-tu carpeta /rokbank/, tu archivo de configuración actual queda intacto y no
-pierdes la contraseña de MySQL ni tu código de instalación.
+Este paquete está COMPLETO. Extrae el ZIP dentro de tu carpeta /rokbank/ en el
+hosting, acepta reemplazar todo y abre la página una vez. No hay que renombrar
+ni configurar nada.
 
-  - ACTUALIZAS una instalación que ya funciona:
-      extrae el ZIP encima y no hagas nada más. Todas las opciones nuevas
-      tienen un valor de reserva dentro del código.
+  - `config.php` ya viene con las credenciales de MySQL de tu instalación.
+  - `storage/` conserva tus datos: el ZIP no trae `.bank-data.json` ni las
+    copias de seguridad, así que no puede pisarlos.
+  - La migración a la versión 3 del esquema se ejecuta sola en el primer
+    acceso, después de crear una copia de seguridad.
 
-  - INSTALACIÓN NUEVA desde cero:
-      renombra `config.php.nuevo` como `config.php` y escribe dentro tus
-      credenciales (o créalas en `config.local.php`, ver el apartado 1).
+AVISO: como `config.php` lleva la contraseña de la base de datos, no compartas
+este ZIP ni lo subas a un repositorio público. Si algún día cambias la
+contraseña, edítala en `config.php` o créala en `config.local.php`.
 
 
 REQUISITOS

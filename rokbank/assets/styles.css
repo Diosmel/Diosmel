@@ -1169,3 +1169,11 @@ progress::-moz-progress-bar { border-radius: 99px; background: var(--gold); }
     .announcement-article-head { padding-top: 32px; }
     .announcement-cover img { height: 150px; }
 }
+
+/* Comparación de configuración antes de guardar */
+.settings-preview-panel .settings-row-changed { background: rgba(220,174,75,.06); }
+.settings-changed-mark { margin-left: 8px; padding: 2px 7px; border-radius: 999px; background: rgba(220,174,75,.18); color: var(--gold-bright); font-size: .66rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+.live-pill.phase-preparation i { background: var(--muted); }
+.live-pill.phase-frozen i { background: var(--warning); }
+.history-detail-table caption { padding: 10px 14px; color: var(--muted); font-size: .8rem; text-align: left; }
+a.filter-chip { text-decoration: none; }
