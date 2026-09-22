@@ -4,6 +4,21 @@ Versión del esquema: 3 (configuración dinámica del evento, libro mayor de
 reservas, liquidación congelada y sección pública de Comunicados).
 
 
+LO PRIMERO DE TODO
+==================
+Este paquete NO trae `config.php`. Es a propósito: así, al extraerlo encima de
+tu carpeta /rokbank/, tu archivo de configuración actual queda intacto y no
+pierdes la contraseña de MySQL ni tu código de instalación.
+
+  - ACTUALIZAS una instalación que ya funciona:
+      extrae el ZIP encima y no hagas nada más. Todas las opciones nuevas
+      tienen un valor de reserva dentro del código.
+
+  - INSTALACIÓN NUEVA desde cero:
+      renombra `config.php.nuevo` como `config.php` y escribe dentro tus
+      credenciales (o créalas en `config.local.php`, ver el apartado 1).
+
+
 REQUISITOS
 - Hosting con PHP 7.4 o superior.
 - Extensiones de PHP: PDO MySQL, fileinfo y (recomendado) mbstring.

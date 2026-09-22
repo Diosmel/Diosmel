@@ -8,3 +8,6 @@ rokbank/storage/media/*
 !rokbank/storage/media/index.php
 rokbank/error_log
 rokbank/assets.zip
+
+# Paquete generado para descarga; no es código fuente.
+rokbank-ampliado-*.zip

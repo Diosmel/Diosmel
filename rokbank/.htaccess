@@ -7,7 +7,7 @@ DirectoryIndex index.php
     Header always set Referrer-Policy "no-referrer"
 </IfModule>
 
-<FilesMatch "^(config\.php|config\.local\.php|config\.example\.php|LEEME_PRIMERO\.txt|\.user\.ini|error_log|update_donations[0-9]*\.php)$">
+<FilesMatch "^(config\.php|config\.php\.nuevo|config\.local\.php|config\.example\.php|LEEME_PRIMERO\.txt|\.user\.ini|error_log|update_donations[0-9]*\.php)$">
     <IfModule mod_authz_core.c>
         Require all denied
     </IfModule>
