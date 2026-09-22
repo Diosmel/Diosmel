@@ -1,0 +1,314 @@
+BANCO DE RECURSOS ME58 — CÁMARA DEL TESORO CON MYSQL
+======================================================
+Versión del esquema: 3 (configuración dinámica del evento, libro mayor de
+reservas, liquidación congelada y sección pública de Comunicados).
+
+
+REQUISITOS
+- Hosting con PHP 7.4 o superior.
+- Extensiones de PHP: PDO MySQL, fileinfo y (recomendado) mbstring.
+- Acceso a la base de datos MySQL o MariaDB configurada.
+- Sitio abierto mediante HTTPS.
+- No necesita API, servicio de pago ni servicio externo. Ninguna biblioteca se
+  descarga desde un CDN: el editor de comunicados es JavaScript propio.
+
+
+1. CREDENCIALES: LEE ESTO ANTES DE SUBIR NADA
+---------------------------------------------
+El `config.php` que viene en el paquete NO contiene la contraseña real de
+MySQL ni tu código de instalación. Se leen, en este orden:
+
+  1. Variables de entorno: ROKBANK_DB_HOST, ROKBANK_DB_PORT, ROKBANK_DB_NAME,
+     ROKBANK_DB_USER, ROKBANK_DB_PASSWORD, ROKBANK_DB_PREFIX,
+     ROKBANK_SETUP_KEY, ROKBANK_STORAGE_DRIVER.
+  2. El archivo privado `config.local.php`, que devuelve un arreglo con las
+     claves que quieras sobrescribir.
+  3. Los valores de reserva del propio `config.php`.
+
+Al actualizar tienes dos caminos igual de válidos:
+
+  A) NO sobrescribas tu `config.php` actual. Todas las opciones nuevas tienen
+     un valor de reserva dentro del código, así que tu archivo antiguo sigue
+     funcionando tal cual.
+
+  B) Sube el `config.php` nuevo y crea junto a él `config.local.php`:
+
+        <?php
+        return [
+            'database' => [
+                'name' => 'tu_base_de_datos',
+                'username' => 'tu_usuario',
+                'password' => 'tu_contraseña',
+            ],
+            'setup_key' => 'TU-CODIGO-DE-INSTALACION',
+        ];
+
+`config.php`, `config.local.php`, `error_log`, `storage/` y este mismo archivo
+están bloqueados por `.htaccess`. Aun así, NUNCA subas ninguno de ellos a un
+repositorio público.
+
+
+2. ACTUALIZAR LA INSTALACIÓN QUE YA ESTÁ FUNCIONANDO
+----------------------------------------------------
+1. En el panel actual, descarga el JSON completo como respaldo
+   (Administrar → Evento → Descargar JSON completo).
+2. Haz también una copia de la base de datos (ver el apartado 7).
+3. Conserva el archivo `storage/.bank-data.json` si existe.
+4. Sube y extrae el ZIP nuevo en la MISMA carpeta /rokbank/.
+5. Acepta reemplazar los PHP, CSS, JavaScript e imágenes. NO borres la carpeta
+   existente antes de extraer y NO elimines `storage/`.
+6. Si eliges el camino (B) del apartado 1, crea `config.local.php` ahora.
+7. Abre una vez la página pública o admin.php.
+
+En ese primer acceso el PHP ejecuta automáticamente la migración a la versión 3
+del esquema:
+
+- Crea una copia de seguridad lógica completa (`before-schema-v3`) ANTES de
+  tocar nada. Queda disponible en la tabla de copias.
+- Comprueba en INFORMATION_SCHEMA qué columnas faltan y añade sólo esas.
+  `CREATE TABLE IF NOT EXISTS` no agrega columnas a una tabla ya creada, por eso
+  cada columna se comprueba una por una.
+- Crea las tablas nuevas: rokbank_reserve_movements, rokbank_settlements,
+  rokbank_pending_contributions, rokbank_announcements,
+  rokbank_announcement_media, rokbank_announcement_media_links y
+  rokbank_announcement_revisions.
+- Asigna un identificador interno único al evento activo.
+- Compara los conteos y los totales de cada recurso antes y después. Si algo no
+  coincide, se detiene, explica la diferencia y NO marca la versión nueva.
+- Sólo al terminar todo correctamente escribe schema_version = 3.
+
+La migración es idempotente y reanudable: ejecutarla otra vez no duplica
+columnas, tablas, movimientos de reserva ni comunicados.
+
+NO se crea ningún movimiento de reserva inicial automático. El saldo que el
+banco tiene hoy pertenece al evento activo y ya se cuenta como aporte de ese
+evento; registrarlo además como reserva de apertura lo contaría dos veces. Si tu
+instalación sí tiene una reserva real anterior, regístrala a mano en
+Administrar → Libro de reservas.
+
+
+3. NOVEDADES DE ESTA VERSIÓN
+-----------------------------
+CONFIGURACIÓN DEL EVENTO (Administrar → Evento)
+- Nombre, estado, fecha de inicio, fecha límite y custodio.
+- Título y descripción del objetivo de la semana.
+- Nombre de la cifra que clasifica (por ejemplo «Puntos de honor»).
+- Método de clasificación: máxima, mínima o manual.
+- Texto propio para explicar cómo se obtiene cada puesto.
+- Las cuatro cuotas requeridas, con recálculo inmediato de la clasificación,
+  el faltante o el excedente por recurso y el estado de cada miembro.
+- Identificador interno único del evento, independiente del nombre.
+
+PREMIO Y RESERVA (Administrar → Premio y reserva)
+- Porcentaje del fondo destinado a premios, de 0 a 100 con dos decimales.
+  Se guarda como puntos básicos enteros (100 % = 10000) para no perder
+  precisión con los decimales.
+- Peso relativo de cada puesto (antes se llamaba sólo «peso»), con el
+  porcentaje calculado, la proyección bruta, el impuesto y el neto previsto.
+- Cantidad de reserva anterior que se añade al premio, por recurso, validada
+  contra el saldo realmente disponible y con el saldo antes y después.
+
+LIBRO DE RESERVAS (Administrar → Libro de reservas)
+- Saldo por recurso derivado siempre de la suma del libro mayor.
+- Movimientos: saldo inicial migrado, retención del evento, reserva entregada
+  al premio, ajustes manuales de entrada y salida y correcciones.
+- Un movimiento contabilizado nunca se edita ni se borra. Las correcciones se
+  hacen con un movimiento compensatorio y una justificación obligatoria, y
+  cada una deja una entrada de auditoría.
+
+LIQUIDACIÓN (Administrar → Liquidación)
+- «Congelar liquidación» crea una fotografía inmutable del evento.
+- Con la liquidación congelada, el impuesto, el porcentaje del fondo, los
+  pesos, la reserva utilizada y las cuotas no se pueden cambiar en silencio.
+- «Desbloquear liquidación» exige una advertencia y un motivo que queda en la
+  auditoría.
+- El cierre ya NO exige saldo cero. Un evento puede cerrarse con saldo distinto
+  de cero siempre que coincida exactamente con la reserva calculada.
+- Un aporte que llega después de congelar no cambia el premio anunciado: el
+  administrador elige si se guarda para el evento siguiente o entra directo a
+  la reserva.
+
+COMUNICADOS (Administrar → Comunicados y página pública «Comunicados»)
+- Tablón oficial de la alianza, sin los límites del correo del juego.
+- Bloques: título, párrafo, lista, cita, caja destacada, separador, botón,
+  imagen, galería, video y audio; se reordenan y se borran.
+- Formato del texto con marcas sencillas dentro de campos de texto normales:
+      **negrita**   //cursiva//   __subrayado__   ~~tachado~~
+      [texto visible](https://enlace)
+      {c:rojo}color de texto{/c}        {f:amarillo}resaltado{/f}
+  Los botones de la barra insertan estas marcas sobre el texto seleccionado.
+- Emojis y cualquier alfabeto Unicode se conservan exactamente.
+- Estados borrador, publicado y archivado; fijar en portada; duplicar;
+  vista previa exacta; revisiones y restauración como borrador nuevo.
+
+
+4. CONTABILIDAD, RECURSO POR RECURSO
+-------------------------------------
+Nunca se compensa el faltante de un recurso con el sobrante de otro.
+
+  R_apertura  reserva acumulada disponible al comenzar el evento
+  C_total     todos los aportes registrados durante el evento
+  C_elegible  aportes de quienes completaron los cuatro requisitos
+  p           porcentaje del fondo destinado a premios
+  P_evento    floor(C_elegible x p)
+  D_reserva   reserva anterior autorizada para reforzar este premio
+  P_total     P_evento + D_reserva   (fondo bruto que puede salir del banco)
+  R_cierre    R_apertura - D_reserva + C_total - P_evento + correcciones
+
+Todo residuo del redondeo se queda en la reserva. Nunca se redondea hacia
+arriba para gastar recursos que no existen.
+
+De cada ganador se guardan y se muestran por separado la cantidad bruta
+enviada, el impuesto del juego y la cantidad neta recibida realmente. La lógica
+tributaria no cambia respecto a la versión anterior: TOP 1 y TOP 2 siguen siendo
+netos garantizados y TOP 3 recibe el remanente.
+
+Ejemplo comprobado con un fondo de 8.024.240 repartido al 80 %:
+
+  Recurso    Total        Premio 80%    Reserva 20%
+  Comida     2.400.180    1.920.144     480.036
+  Madera     2.400.180    1.920.144     480.036
+  Piedra     2.003.640    1.602.912     400.728
+  Oro        1.220.240      976.192     244.048
+  Total      8.024.240    6.419.392   1.604.848
+
+Los pesos de los ganadores se aplican sobre 6.419.392, nunca sobre 8.024.240.
+
+
+5. FLUJO ADMINISTRATIVO RECOMENDADO
+------------------------------------
+1. Evento: objetivo, reglas, fechas, métrica y cuotas.
+2. Premio y reserva: porcentaje repartido, pesos, impuesto, reserva utilizada
+   y revisión de la vista previa.
+3. Envíos: registro de aportes y clasificación.
+4. Liquidación: congelar, registrar las entregas con su neto real y cerrar.
+5. Libro de reservas: revisar saldos y movimientos.
+6. Comunicados: borradores, archivos, vista previa y publicación.
+7. Historial y actividad.
+
+
+6. LÍMITES DE CARGA DE IMÁGENES, VIDEOS Y AUDIOS
+-------------------------------------------------
+Valores iniciales de ROKBANK, configurables en `config.php` o en
+`config.local.php` con la clave `media_limits`:
+
+    'media_limits' => [
+        'image' =>  15 * 1024 * 1024,   //  15 MiB
+        'audio' =>  50 * 1024 * 1024,   //  50 MiB
+        'video' => 250 * 1024 * 1024,   // 250 MiB
+    ],
+
+El panel muestra SIEMPRE el límite efectivo, que es el más bajo entre ese valor,
+`upload_max_filesize` y `post_max_size`. Para subir videos grandes hay que
+ampliar también los límites del servidor. En un hosting compartido normalmente
+se hace desde `.user.ini` (o `php.ini`):
+
+    upload_max_filesize = 256M
+    post_max_size = 260M
+    memory_limit = 256M
+    max_execution_time = 300
+    max_input_time = 300
+
+Si el servidor web es Apache con mod_reqtimeout o hay un proxy delante, puede
+hacer falta además subir `LimitRequestBody` y el tiempo de espera del proxy.
+
+Un comunicado muy largo envía muchos campos de formulario a la vez. Si tienes
+previsto usar decenas de bloques, sube también:
+
+    max_input_vars = 3000
+
+Un comunicado admite como máximo 300 bloques y unos 100.000 caracteres de texto
+(el límite de caracteres se ajusta con `announcement_max_characters`).
+Después de cambiarlos, vuelve a abrir Administrar → Comunicados: el panel
+mostrará el límite efectivo nuevo. No prometas cargas ilimitadas.
+
+Formatos admitidos: JPEG, PNG, WebP y GIF; MP4 y WebM; MP3, M4A, OGG y WAV.
+SVG se rechaza siempre. Cambiarle la extensión a un archivo no sirve: el tipo se
+detecta leyendo el contenido con finfo.
+
+Los archivos se guardan en `storage/media/` con un nombre aleatorio generado por
+el servidor, sin acceso directo, y se sirven mediante `media.php?id=...`, que
+admite solicitudes HTTP Range para poder avanzar dentro de un video o un audio.
+
+
+7. RESPALDO Y RESTAURACIÓN
+---------------------------
+BASE DE DATOS
+  Copia:      mysqldump --default-character-set=utf8mb4 --single-transaction \
+                -u USUARIO -p BASE > rokbank-AAAAMMDD.sql
+  Restaurar:  mysql --default-character-set=utf8mb4 -u USUARIO -p BASE \
+                < rokbank-AAAAMMDD.sql
+
+ARCHIVOS DE LOS COMUNICADOS
+  Copia:      tar -czf rokbank-media-AAAAMMDD.tar.gz storage/media
+  Restaurar:  tar -xzf rokbank-media-AAAAMMDD.tar.gz
+
+La base de datos y la carpeta `storage/media` deben respaldarse JUNTAS y
+restaurarse JUNTAS: las filas de `rokbank_announcement_media` apuntan a los
+archivos por su nombre de almacenamiento.
+
+DENTRO DEL PANEL
+  - «Deshacer último cambio» restaura la última copia automática.
+  - Administrar → Evento → Descargar JSON completo o CSV.
+  El banco crea una copia automática antes de cada cambio importante: guardar
+  la configuración, congelar, corregir un evento histórico y cerrar un evento.
+
+
+8. SEGURIDAD
+-------------
+- Toda acción privada exige sesión administrativa y token CSRF, incluidas las
+  cargas de archivos, la publicación, el retiro y el borrado.
+- La validación del servidor es la autoridad final; todas las consultas SQL van
+  preparadas y todo el texto público se escapa en su contexto.
+- Los comunicados NO guardan HTML escrito por una persona. Se guarda un JSON
+  estructurado con bloques y marcas permitidas y el servidor genera el HTML con
+  plantillas conocidas. Así no hay forma de introducir <script>, atributos on*,
+  URLs javascript: o data:, iframes arbitrarios ni estilos que rompan la página.
+- Los colores no son valores libres sino una paleta aprobada que se traduce a
+  clases CSS, de modo que no hace falta permitir estilos en línea y la Content
+  Security Policy sigue siendo estricta.
+- La CSP sólo cambió lo imprescindible: `media-src 'self' blob:` para poder
+  reproducir audio y video. Los scripts en línea siguen prohibidos. Si algún día
+  quieres incrustar YouTube o Vimeo, añade esos dominios concretos a
+  `frame-src`; nunca aceptes iframes de cualquier dominio.
+- Los borradores no son accesibles públicamente aunque se adivine su dirección,
+  y sus archivos sólo se sirven a una sesión administrativa.
+- Al eliminar un comunicado no se borra un archivo que otro comunicado siga
+  usando: hay recuento de referencias y limpieza segura de huérfanos.
+
+
+9. HERRAMIENTAS PARA UNA INTELIGENCIA ARTIFICIAL
+-------------------------------------------------
+Los formularios usan controles HTML semánticos con etiquetas inequívocas y
+atributos `data-testid` estables. Además se registran, cuando el navegador lo
+admite, estas herramientas WebMCP:
+
+  prepare_resource_contribution   prepara un aporte en el formulario
+  prepare_announcement_draft      prepara título, resumen y bloques y deja la
+                                  vista previa a un clic
+  prepare_event_configuration     prepara objetivo, métrica, cuotas, porcentaje,
+                                  pesos y reserva
+
+Ninguna de ellas guarda ni publica nada por su cuenta. La publicación y el
+guardado siempre exigen una revisión y una acción explícita del administrador.
+
+
+10. ARCHIVOS DEL PAQUETE
+-------------------------
+  index.php              portada pública con el desglose del fondo y la reserva
+  announcements.php      lista pública de comunicados
+  announcement.php       comunicado completo
+  media.php              entrega controlada de imágenes, videos y audios
+  history.php            historial de eventos cerrados
+  admin.php              panel de administración
+  export.php             exportación JSON y CSV
+  setup.php / login.php / logout.php
+  config.php             configuración (sin credenciales reales)
+  includes/bootstrap.php contabilidad, reservas, liquidación y seguridad
+  includes/mysql.php     esquema, migraciones y transacciones
+  includes/layout.php    componentes comunes y editor de bloques
+  includes/announcements.php  modelo, validación y plantillas de comunicados
+  includes/media.php     validación y almacenamiento de archivos
+  includes/admin_announcements.php  acciones administrativas de comunicados
+  assets/                estilos, JavaScript e imágenes
+  storage/               datos, copias y medios (sin acceso web)

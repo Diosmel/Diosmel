@@ -1,0 +1,10 @@
+# Credenciales y datos reales del hosting: nunca deben entrar al repositorio.
+rokbank/config.local.php
+rokbank/storage/.bank-data.json
+rokbank/storage/.bank.lock
+rokbank/storage/backups/
+rokbank/storage/media/*
+!rokbank/storage/media/.htaccess
+!rokbank/storage/media/index.php
+rokbank/error_log
+rokbank/assets.zip

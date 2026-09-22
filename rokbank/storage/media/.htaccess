@@ -1,0 +1,20 @@
+Options -Indexes
+
+# Ningún archivo de esta carpeta se sirve directamente: todo pasa por media.php,
+# que comprueba la sesión administrativa de los borradores, envía el tipo MIME
+# correcto y admite solicitudes HTTP Range.
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>
